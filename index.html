@@ -1,59 +1,474 @@
-<div>Teachable Machine Image Model</div>
-<button type="button" onclick="init()">Start</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-<script type="text/javascript">
-    // More API functions here:
-    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
-
-    // the link to your model provided by Teachable Machine export panel
-    const URL = "./my_model/";
-
-    let model, webcam, labelContainer, maxPredictions;
-
-    // Load the image model and setup the webcam
-    async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
-
-        // load the model and metadata
-        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
-        // or files from your local hard drive
-        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
-
-        // Convenience function to setup a webcam
-        const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(500, 500, flip); // width, height, flip
-        await webcam.setup(); // request access to the webcam
-        await webcam.play();
-        window.requestAnimationFrame(loop);
-
-        // append elements to the DOM
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) { // and class labels
-            labelContainer.appendChild(document.createElement("div"));
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f3f5f2">
+    <title>주변 사물 읽기</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --ink: #1d2927;
+            --muted: #687571;
+            --paper: #f3f5f2;
+            --surface: #fff;
+            --line: #dfe5e1;
+            --accent: #d6533d;
+            --green: #416f61;
+            --soft-green: #e8f0eb;
         }
-    }
 
-    async function loop() {
-        webcam.update(); // update the webcam frame
-        await predict();
-        window.requestAnimationFrame(loop);
-    }
-
-    // run the webcam image through the image model
-    async function predict() {
-        // predict can take in an image, video or canvas html element
-        const prediction = await model.predict(webcam.canvas);
-        for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body {
+            margin: 0;
+            min-width: 320px;
+            min-height: 100vh;
+            background: var(--paper);
+            color: var(--ink);
+            font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+            -webkit-font-smoothing: antialiased;
         }
-    }
-</script>
+
+        button { font: inherit; }
+        .app { width: min(1120px, 100%); margin: 0 auto; padding: 26px 30px 48px; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
+        .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 750; letter-spacing: 0; }
+        .brand-mark { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: var(--green); color: #fff; }
+        .brand-mark svg { width: 18px; height: 18px; }
+        .scope { color: var(--muted); font-size: 12px; }
+        .intro { margin-bottom: 22px; }
+        .eyebrow { margin: 0 0 8px; color: var(--green); font-size: 12px; font-weight: 750; }
+        h1 { margin: 0; font-size: 32px; letter-spacing: 0; line-height: 1.25; }
+        .intro p:last-child { margin: 9px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+        .workspace { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(290px, .8fr); gap: 30px; align-items: start; }
+        .camera-column { min-width: 0; }
+        .camera-frame { position: relative; overflow: hidden; width: 100%; aspect-ratio: 4 / 3; border-radius: 12px; background: #17211f; }
+        .camera-frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .camera-frame video.mirrored { transform: scaleX(-1); }
+        .camera-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; color: #d8e2dd; text-align: center; }
+        .camera-empty svg { width: 36px; height: 36px; color: #9eb6aa; }
+        .camera-empty strong { font-size: 15px; }
+        .camera-empty span { max-width: 310px; color: #aab9b2; font-size: 12px; line-height: 1.6; }
+        .guide { position: absolute; inset: 12% 13%; display: grid; place-items: center; pointer-events: none; }
+        .guide-box { position: relative; width: min(72%, 330px); aspect-ratio: 1; border: 1px solid rgb(255 255 255 / 55%); border-radius: 24px; box-shadow: 0 0 0 999px rgb(8 17 14 / 13%); }
+        .guide-box::before, .guide-box::after { position: absolute; content: ""; width: 28px; height: 28px; border-color: #fff; border-style: solid; }
+        .guide-box::before { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-radius: 8px 0 0; }
+        .guide-box::after { right: -2px; bottom: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 8px; }
+        .guide-label { position: absolute; bottom: -42px; left: 50%; width: max-content; max-width: 90%; padding: 7px 12px; border-radius: 20px; background: rgb(17 28 24 / 67%); color: white; font-size: 12px; transform: translateX(-50%); }
+        .camera-status { display: flex; min-height: 38px; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+        .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #a4b0ab; }
+        .status-dot.live { background: #4a9a70; box-shadow: 0 0 0 3px #4a9a7020; }
+        .status-dot.error { background: var(--accent); }
+        .actions { display: grid; grid-template-columns: .82fr 1.18fr; gap: 10px; }
+        .button { min-height: 54px; padding: 0 18px; border: 0; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 750; transition: background .18s ease, transform .18s ease; }
+        .button:active:not(:disabled) { transform: translateY(1px); }
+        .button:focus-visible, .history-item:focus-visible { outline: 3px solid #6f9e89; outline-offset: 3px; }
+        .button:disabled { cursor: not-allowed; opacity: .48; }
+        .button-secondary { background: #e5eae6; color: var(--ink); }
+        .button-secondary:hover:not(:disabled) { background: #dbe3dd; }
+        .button-primary { background: var(--accent); color: white; }
+        .button-primary:hover:not(:disabled) { background: #bd4431; }
+        .result { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+        .section-kicker { margin: 0 0 12px; color: var(--muted); font-size: 11px; font-weight: 750; }
+        .result-empty { color: #8a9691; font-size: 13px; }
+        .result-content { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: start; }
+        .result-image { display: block; width: 96px; aspect-ratio: 1; border-radius: 8px; background: #e5eae6; object-fit: cover; }
+        .result-name { margin: 0; font-size: 21px; line-height: 1.35; }
+        .result-confidence { display: inline-block; margin-top: 6px; color: var(--green); font-size: 11px; font-weight: 700; }
+        .result-description { margin: 10px 0 0; color: #4f5c57; font-size: 13px; line-height: 1.7; white-space: pre-line; }
+        .result-note { margin: 9px 0 0; color: #8a9691; font-size: 11px; line-height: 1.5; }
+        .voice-actions { display: flex; gap: 8px; margin-top: 13px; }
+        .voice-button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; }
+        .voice-button:hover:not(:disabled) { background: var(--soft-green); }
+        .voice-button:disabled { cursor: not-allowed; opacity: .45; }
+        .side-column { min-width: 0; }
+        .history-heading { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+        .history-heading h2 { margin: 0; font-size: 16px; }
+        .clear-button { padding: 7px 0 7px 10px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
+        .clear-button:hover { color: var(--accent); }
+        .history-list { display: grid; gap: 1px; }
+        .history-empty { padding: 22px 0; color: #8a9691; font-size: 12px; line-height: 1.6; }
+        .history-item { display: grid; width: 100%; grid-template-columns: 54px minmax(0, 1fr); gap: 12px; align-items: center; padding: 13px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; cursor: pointer; }
+        .history-item:hover .history-name { color: var(--green); }
+        .history-image { width: 54px; aspect-ratio: 1; border-radius: 7px; background: #e5eae6; object-fit: cover; }
+        .history-name { display: block; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+        .history-time { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+        .notice { margin-top: 22px; padding: 13px 14px; border-radius: 8px; background: var(--soft-green); color: #526a5f; font-size: 11px; line-height: 1.65; }
+        .notice strong { color: #365848; }
+
+        @media (max-width: 720px) {
+            .app { padding: 18px 18px calc(28px + env(safe-area-inset-bottom)); }
+            .topbar { margin-bottom: 25px; }
+            .scope { max-width: 130px; text-align: right; line-height: 1.5; }
+            .intro { margin-bottom: 18px; }
+            h1 { font-size: 27px; }
+            .workspace { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+            .camera-frame { aspect-ratio: 4 / 3; border-radius: 10px; }
+            .guide { inset: 11% 10%; }
+            .guide-box { width: min(68%, 290px); border-radius: 20px; }
+            .button { min-height: 56px; padding: 0 10px; font-size: 13px; }
+            .side-column { padding-top: 2px; }
+            .history-item { grid-template-columns: 58px minmax(0, 1fr); }
+            .history-image { width: 58px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+        }
+    </style>
+</head>
+<body>
+    <main class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3"/></svg>
+                </span>
+                주변 사물 읽기
+            </div>
+            <span class="scope">현재 인식 대상 · 손가락 하트, 버즈, 휴대폰</span>
+        </header>
+
+        <section class="intro" aria-labelledby="page-title">
+            <p class="eyebrow">LOOK CLOSER</p>
+            <h1 id="page-title">이건 어떤 물건일까요?</h1>
+            <p>카메라로 비추고 판독하면 이름과 쓰임을 알려드려요.</p>
+        </section>
+
+        <div class="workspace">
+            <section class="camera-column" aria-label="사물 판독">
+                <div class="camera-frame">
+                    <video id="camera" autoplay muted playsinline aria-label="카메라 미리보기"></video>
+                    <div class="camera-empty" id="camera-empty">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3"/></svg>
+                        <strong>카메라를 시작해 주세요</strong>
+                        <span>사물을 밝은 곳에 두고 화면 안에 맞춰 주세요.</span>
+                    </div>
+                    <div class="guide" id="guide" hidden aria-hidden="true">
+                        <div class="guide-box"><span class="guide-label">사물을 이 안에 맞춰 주세요</span></div>
+                    </div>
+                </div>
+                <div class="camera-status" role="status" aria-live="polite">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">카메라를 시작하면 판독할 수 있어요.</span>
+                </div>
+                <div class="actions">
+                    <button class="button button-secondary" id="camera-button" type="button">카메라 시작</button>
+                    <button class="button button-primary" id="capture-button" type="button" disabled>촬영하고 판독</button>
+                </div>
+
+                <section class="result" aria-labelledby="result-heading">
+                    <p class="section-kicker" id="result-heading">판독 결과</p>
+                    <p class="result-empty" id="result-empty">촬영하면 사물의 이름과 쓰임을 알려드릴게요.</p>
+                    <div class="result-content" id="result-content" hidden>
+                        <img class="result-image" id="result-image" alt="판독한 사물">
+                        <div>
+                            <h2 class="result-name" id="result-name"></h2>
+                            <span class="result-confidence" id="result-confidence"></span>
+                            <p class="result-description" id="result-description"></p>
+                            <p class="result-note" id="result-note"></p>
+                            <div class="voice-actions">
+                                <button class="voice-button" id="speak-button" type="button">음성으로 듣기</button>
+                                <button class="voice-button" id="stop-speaking-button" type="button" disabled>음성 중지</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <aside class="side-column" aria-labelledby="history-heading">
+                <div class="history-heading">
+                    <h2 id="history-heading">최근 판독</h2>
+                    <button class="clear-button" id="clear-history-button" type="button" hidden>기록 삭제</button>
+                </div>
+                <div class="history-list" id="history-list" aria-live="polite"></div>
+                <div class="notice"><strong>인식 범위 안내</strong><br>현재 모델은 손가락 하트, 버즈, 휴대폰만 구분하도록 학습되어 있어요. 다른 사물은 정확히 판별하지 못할 수 있습니다.</div>
+            </aside>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script>
+        const MODEL_URL = "./my_model/";
+        const HISTORY_KEY = "object-reader-history-v1";
+        const MIN_CONFIDENCE = 0.65;
+        const MIN_MARGIN = 0.12;
+        const ITEM_DETAILS = {
+            "하트": "손가락 하트 제스처입니다. 엄지와 검지로 작은 하트 모양을 만들어 애정이나 고마움을 표현할 때 사용합니다.",
+            "버즈": "무선 이어버드입니다. 스마트폰과 블루투스로 연결해 음악을 듣거나 통화할 때 사용하며, 충전 케이스에 보관하고 충전합니다.",
+            "휴대폰": "휴대용 전화기입니다. 통화와 메시지뿐 아니라 앱, 카메라, 인터넷 등 다양한 기능을 사용할 수 있습니다."
+        };
+
+        const camera = document.getElementById("camera");
+        const cameraEmpty = document.getElementById("camera-empty");
+        const guide = document.getElementById("guide");
+        const cameraButton = document.getElementById("camera-button");
+        const captureButton = document.getElementById("capture-button");
+        const statusText = document.getElementById("status-text");
+        const statusDot = document.getElementById("status-dot");
+        const resultEmpty = document.getElementById("result-empty");
+        const resultContent = document.getElementById("result-content");
+        const resultImage = document.getElementById("result-image");
+        const resultName = document.getElementById("result-name");
+        const resultConfidence = document.getElementById("result-confidence");
+        const resultDescription = document.getElementById("result-description");
+        const resultNote = document.getElementById("result-note");
+        const speakButton = document.getElementById("speak-button");
+        const stopSpeakingButton = document.getElementById("stop-speaking-button");
+        const historyList = document.getElementById("history-list");
+        const clearHistoryButton = document.getElementById("clear-history-button");
+
+        let model;
+        let stream;
+        let currentResult;
+        let history = readHistory();
+
+        function readHistory() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+                return Array.isArray(saved) ? saved : [];
+            } catch {
+                return [];
+            }
+        }
+
+        function setStatus(message, kind = "") {
+            statusText.textContent = message;
+            statusDot.className = `status-dot${kind ? ` ${kind}` : ""}`;
+        }
+
+        async function startCamera() {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                setStatus("카메라는 HTTPS 또는 localhost에서만 사용할 수 있어요.", "error");
+                return;
+            }
+
+            cameraButton.disabled = true;
+            captureButton.disabled = true;
+            setStatus("카메라와 인식 모델을 준비하고 있어요.");
+
+            try {
+                const modelPromise = model
+                    ? Promise.resolve(model)
+                    : tmImage.load(`${MODEL_URL}model.json`, `${MODEL_URL}metadata.json`);
+                const cameraPromise = navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: {
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 1280 },
+                        height: { ideal: 960 }
+                    }
+                }).then((activeStream) => {
+                    stream = activeStream;
+                    return activeStream;
+                });
+
+                const [cameraResult, modelResult] = await Promise.allSettled([cameraPromise, modelPromise]);
+                if (cameraResult.status === "rejected") throw cameraResult.reason;
+                if (modelResult.status === "rejected") {
+                    const modelError = new Error("Model failed to load");
+                    modelError.name = "ModelLoadError";
+                    throw modelError;
+                }
+
+                stream = cameraResult.value;
+                camera.srcObject = stream;
+                camera.classList.remove("mirrored");
+                await camera.play();
+                model = modelResult.value;
+
+                cameraEmpty.hidden = true;
+                guide.hidden = false;
+                cameraButton.textContent = "카메라 끄기";
+                cameraButton.disabled = false;
+                captureButton.disabled = false;
+                setStatus("후면 카메라가 켜졌어요. 사물을 화면에 맞춰 주세요.", "live");
+            } catch (error) {
+                stopCamera();
+                if (error.name === "NotAllowedError" || error.name === "PermissionDeniedError") {
+                    setStatus("카메라 권한이 필요해요. 브라우저 설정에서 권한을 허용해 주세요.", "error");
+                } else if (error.name === "NotFoundError" || error.name === "OverconstrainedError") {
+                    setStatus("사용할 수 있는 카메라를 찾지 못했어요.", "error");
+                } else if (error.name === "ModelLoadError" || !window.tmImage) {
+                    setStatus("인식 모델을 불러오지 못했어요. 네트워크 연결을 확인해 주세요.", "error");
+                } else {
+                    setStatus("카메라를 시작하지 못했어요. 다른 앱의 카메라 사용을 확인해 주세요.", "error");
+                }
+                cameraButton.disabled = false;
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach((track) => track.stop());
+                stream = undefined;
+            }
+            camera.srcObject = null;
+            cameraEmpty.hidden = false;
+            guide.hidden = true;
+            cameraButton.textContent = "카메라 시작";
+            captureButton.disabled = true;
+        }
+
+        function createStoredImage(source) {
+            const maxSide = 480;
+            const scale = Math.min(1, maxSide / Math.max(source.videoWidth || source.width, source.videoHeight || source.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round((source.videoWidth || source.width) * scale);
+            canvas.height = Math.round((source.videoHeight || source.height) * scale);
+            canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL("image/jpeg", 0.68);
+        }
+
+        async function captureAndRecognize() {
+            if (!model || !stream || !camera.videoWidth) return;
+
+            captureButton.disabled = true;
+            setStatus("촬영한 이미지를 살펴보고 있어요.", "live");
+            try {
+                const snapshot = document.createElement("canvas");
+                snapshot.width = camera.videoWidth;
+                snapshot.height = camera.videoHeight;
+                snapshot.getContext("2d").drawImage(camera, 0, 0, snapshot.width, snapshot.height);
+                const image = createStoredImage(snapshot);
+                const predictions = await model.predict(snapshot);
+                predictions.sort((first, second) => second.probability - first.probability);
+                const [best, runnerUp] = predictions;
+                const margin = best.probability - (runnerUp?.probability || 0);
+                const certain = best.probability >= MIN_CONFIDENCE && margin >= MIN_MARGIN;
+                const result = certain
+                    ? {
+                        name: best.className,
+                        description: ITEM_DETAILS[best.className] || "이 사물은 현재 인식 모델이 학습한 분류에 포함됩니다.",
+                        confidence: best.probability,
+                        certain: true,
+                        image,
+                        createdAt: new Date().toISOString()
+                    }
+                    : {
+                        name: "확실히 판별하지 못했어요",
+                        description: "현재 모델이 학습한 손가락 하트, 버즈, 휴대폰 중에서 뚜렷하게 구분하지 못했습니다. 사물을 가까이 두고 조명을 밝게 한 뒤 다시 촬영해 주세요.",
+                        confidence: best.probability,
+                        certain: false,
+                        image,
+                        createdAt: new Date().toISOString()
+                    };
+
+                showResult(result);
+                const saved = saveResult(result);
+                const message = saved
+                    ? (certain ? "판독이 끝났어요." : "이번 이미지는 확실히 판별하지 못했어요.")
+                    : "판독은 끝났지만 브라우저 저장공간이 부족해 기록하지 못했어요.";
+                setStatus(message, saved && certain ? "live" : saved ? "" : "error");
+            } catch {
+                setStatus("판독에 실패했어요. 화면을 확인하고 다시 촬영해 주세요.", "error");
+            } finally {
+                captureButton.disabled = false;
+            }
+        }
+
+        function showResult(result) {
+            currentResult = result;
+            resultEmpty.hidden = true;
+            resultContent.hidden = false;
+            resultImage.src = result.image;
+            resultName.textContent = result.name;
+            resultConfidence.textContent = result.certain
+                ? `모델 점수 ${Math.round(result.confidence * 100)}%`
+                : "인식 결과가 불확실합니다";
+            resultDescription.textContent = result.description;
+            resultNote.textContent = result.certain
+                ? "세 가지 학습 분류 안에서의 점수예요. 다른 사물은 잘못 분류될 수 있어요."
+                : "추측을 판독 결과로 단정하지 않았어요.";
+        }
+
+        function saveResult(result) {
+            history = [result, ...history].slice(0, 12);
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+                renderHistory();
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        function renderHistory() {
+            historyList.replaceChildren();
+            clearHistoryButton.hidden = history.length === 0;
+            if (!history.length) {
+                const empty = document.createElement("p");
+                empty.className = "history-empty";
+                empty.textContent = "아직 판독 기록이 없어요. 촬영한 결과가 여기에 저장됩니다.";
+                historyList.append(empty);
+                return;
+            }
+
+            for (const result of history) {
+                const button = document.createElement("button");
+                button.className = "history-item";
+                button.type = "button";
+                const image = document.createElement("img");
+                image.className = "history-image";
+                image.src = result.image;
+                image.alt = "";
+                const copy = document.createElement("span");
+                const name = document.createElement("span");
+                name.className = "history-name";
+                name.textContent = result.name;
+                const time = document.createElement("span");
+                time.className = "history-time";
+                time.textContent = new Date(result.createdAt).toLocaleString("ko-KR", {
+                    month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"
+                });
+                copy.append(name, time);
+                button.append(image, copy);
+                button.addEventListener("click", () => {
+                    showResult(result);
+                    document.querySelector(".result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+                });
+                historyList.append(button);
+            }
+        }
+
+        function speakResult() {
+            if (!currentResult || !("speechSynthesis" in window)) return;
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(`${currentResult.name}. ${currentResult.description}`);
+            utterance.lang = "ko-KR";
+            utterance.onstart = () => { stopSpeakingButton.disabled = false; };
+            utterance.onend = () => { stopSpeakingButton.disabled = true; };
+            utterance.onerror = () => { stopSpeakingButton.disabled = true; };
+            window.speechSynthesis.speak(utterance);
+        }
+
+        cameraButton.addEventListener("click", () => {
+            if (stream) {
+                stopCamera();
+                setStatus("카메라가 꺼졌어요.");
+            } else {
+                startCamera();
+            }
+        });
+        captureButton.addEventListener("click", captureAndRecognize);
+        speakButton.addEventListener("click", speakResult);
+        stopSpeakingButton.addEventListener("click", () => {
+            window.speechSynthesis.cancel();
+            stopSpeakingButton.disabled = true;
+        });
+        clearHistoryButton.addEventListener("click", () => {
+            history = [];
+            localStorage.removeItem(HISTORY_KEY);
+            renderHistory();
+        });
+
+        if (!("speechSynthesis" in window)) {
+            speakButton.disabled = true;
+            speakButton.title = "이 브라우저에서는 음성 안내를 지원하지 않아요.";
+        }
+        renderHistory();
+    </script>
+</body>
+</html>
